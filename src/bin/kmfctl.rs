@@ -79,6 +79,12 @@ enum OtarCmd {
         /// Accept the SwMI's self-signed TLS certificate.
         #[arg(long, default_value_t = false)]
         insecure: bool,
+        /// Dashboard login user.
+        #[arg(long, default_value = "admin")]
+        user: String,
+        /// Dashboard password (or env TETRA_KMF_SWMI_PASSWORD).
+        #[arg(long)]
+        password: Option<String>,
         /// Poll the SwMI for the radio's D-OTAR result (up to 35 s).
         #[arg(long, default_value_t = false)]
         wait: bool,
@@ -100,6 +106,12 @@ enum OtarCmd {
         /// Accept the SwMI's self-signed TLS certificate.
         #[arg(long, default_value_t = false)]
         insecure: bool,
+        /// Dashboard login user.
+        #[arg(long, default_value = "admin")]
+        user: String,
+        /// Dashboard password (or env TETRA_KMF_SWMI_PASSWORD).
+        #[arg(long)]
+        password: Option<String>,
         /// Poll the SwMI for the radio's D-OTAR result (up to 35 s).
         #[arg(long, default_value_t = false)]
         wait: bool,
@@ -213,17 +225,19 @@ fn run() -> Result<()> {
                 println!("  RSO  = {}", hex::encode(&sealed.rso));
                 eprintln!("(the SwMI transmits SSCK+RSO in a D-OTAR SCK PROVIDE PDU)");
             }
-            OtarCmd::ProvideSck { issi, sckn, version, ksg, swmi, insecure, wait } => {
+            OtarCmd::ProvideSck { issi, sckn, version, ksg, swmi, insecure, user, password, wait } => {
                 let n = Sckn::new(sckn)?;
-                let connector = HttpSwmiConnector::new(&swmi, insecure)?;
+                let password = password.or_else(|| std::env::var("TETRA_KMF_SWMI_PASSWORD").ok()).unwrap_or_default();
+                let connector = HttpSwmiConnector::new(&swmi, insecure, &user, &password)?;
                 let status = kmc.provision_sck(&TetraSealer, &connector, issi, n, version, ksg)?;
                 println!("provisioned SCK {sckn} v{version} to ISSI {issi} via {swmi}: {status}");
                 if wait {
                     wait_for_result(&connector, issi);
                 }
             }
-            OtarCmd::ProvideGck { issi, gssi, version, gckn, ksg, swmi, insecure, wait } => {
-                let connector = HttpSwmiConnector::new(&swmi, insecure)?;
+            OtarCmd::ProvideGck { issi, gssi, version, gckn, ksg, swmi, insecure, user, password, wait } => {
+                let password = password.or_else(|| std::env::var("TETRA_KMF_SWMI_PASSWORD").ok()).unwrap_or_default();
+                let connector = HttpSwmiConnector::new(&swmi, insecure, &user, &password)?;
                 let status = kmc.provision_gck(&TetraSealer, &connector, issi, gssi, version, gckn, ksg)?;
                 println!("provisioned GCK {gckn} v{version} (GSSI {gssi}) to ISSI {issi} via {swmi}: {status}");
                 if wait {

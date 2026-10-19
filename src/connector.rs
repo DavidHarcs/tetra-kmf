@@ -17,22 +17,78 @@ use std::time::Duration;
 pub struct HttpSwmiConnector {
     base_url: String,
     client: reqwest::blocking::Client,
+    username: String,
+    password: String,
+    /// Cached `fs_session` cookie from the dashboard login.
+    session: std::sync::Mutex<Option<String>>,
 }
 
 impl HttpSwmiConnector {
     /// `base_url` e.g. `https://flowstation.local`. `insecure` accepts a
     /// self-signed TLS certificate — FlowStation ships one, which is normal on a
-    /// trusted management link.
-    pub fn new(base_url: impl Into<String>, insecure: bool) -> Result<Self> {
+    /// trusted management link. `username`/`password` are the dashboard login
+    /// (leave the password empty for a SwMI with auth disabled).
+    pub fn new(
+        base_url: impl Into<String>,
+        insecure: bool,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Result<Self> {
         let client = reqwest::blocking::Client::builder()
             .danger_accept_invalid_certs(insecure)
+            .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0")
             .timeout(Duration::from_secs(10))
             .build()
             .map_err(|e| KmfError::Io(format!("building HTTP client: {e}")))?;
         Ok(HttpSwmiConnector {
             base_url: base_url.into().trim_end_matches('/').to_string(),
             client,
+            username: username.into(),
+            password: password.into(),
+            session: std::sync::Mutex::new(None),
         })
+    }
+
+    /// Return the `fs_session` cookie, logging in if necessary. Empty when no
+    /// password is configured (auth-disabled SwMI).
+    fn session_cookie(&self) -> Result<String> {
+        if self.password.is_empty() {
+            return Ok(String::new());
+        }
+        if let Some(tok) = self.session.lock().unwrap().clone() {
+            return Ok(tok);
+        }
+        let url = format!("{}/api/login", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .json(&serde_json::json!({"user": self.username, "password": self.password}))
+            .send()
+            .map_err(|e| KmfError::Io(format!("POST {url}: {e}")))?;
+        let token = resp
+            .headers()
+            .get_all(reqwest::header::SET_COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .find_map(|c| {
+                c.split(';')
+                    .next()
+                    .and_then(|kv| kv.trim().strip_prefix("fs_session="))
+                    .map(|t| t.to_string())
+            })
+            .ok_or_else(|| KmfError::Policy("SwMI login failed (no session cookie)".into()))?;
+        *self.session.lock().unwrap() = Some(token.clone());
+        Ok(token)
+    }
+
+    /// Build a POST with the session cookie attached.
+    fn post(&self, url: &str, body: &serde_json::Value) -> Result<reqwest::blocking::RequestBuilder> {
+        let cookie = self.session_cookie()?;
+        let mut req = self.client.post(url).json(body);
+        if !cookie.is_empty() {
+            req = req.header(reqwest::header::COOKIE, format!("fs_session={cookie}"));
+        }
+        Ok(req)
     }
 }
 
@@ -56,9 +112,7 @@ impl SwmiConnector for HttpSwmiConnector {
             "rso": hex::encode(rso),
         });
         let resp = self
-            .client
-            .post(&url)
-            .json(&body)
+            .post(&url, &body)?
             .send()
             .map_err(|e| KmfError::Io(format!("POST {url}: {e}")))?;
         let http_status = resp.status();
@@ -89,9 +143,7 @@ impl SwmiConnector for HttpSwmiConnector {
             "rso": hex::encode(rso),
         });
         let resp = self
-            .client
-            .post(&url)
-            .json(&body)
+            .post(&url, &body)?
             .send()
             .map_err(|e| KmfError::Io(format!("POST {url}: {e}")))?;
         let http_status = resp.status();
@@ -106,9 +158,12 @@ impl HttpSwmiConnector {
     /// GET the last D-OTAR result for `issi` from the SwMI.
     pub fn result_for(&self, issi: Issi) -> Result<String> {
         let url = format!("{}/api/otar/result?issi={}", self.base_url, issi);
-        let resp = self
-            .client
-            .get(&url)
+        let cookie = self.session_cookie()?;
+        let mut req = self.client.get(&url);
+        if !cookie.is_empty() {
+            req = req.header(reqwest::header::COOKIE, format!("fs_session={cookie}"));
+        }
+        let resp = req
             .send()
             .map_err(|e| KmfError::Io(format!("GET {url}: {e}")))?;
         let v: serde_json::Value = resp
