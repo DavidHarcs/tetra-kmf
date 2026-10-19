@@ -14,7 +14,7 @@ use crate::keys::{KeyKind, KeyState, VersionedKey};
 use crate::model::{Database, Group, SckSlot, Subscriber};
 use crate::provision::{KeyRef, ProvisionJob, SealedKey, Sealer, SwmiConnector};
 use crate::store::KeyStore;
-use crate::types::{Gssi, Issi, Sckn};
+use crate::types::{Gssi, Issi, KeyMaterial, Sckn};
 
 pub struct Kmc<S: KeyStore> {
     store: S,
@@ -96,6 +96,37 @@ impl<S: KeyStore> Kmc<S> {
             .record("key.k.generate", format!("issi={issi} version={version}"))?;
         self.persist()?;
         Ok(version)
+    }
+
+    /// Set a subscriber's K to a specific externally-generated value (e.g. a K
+    /// imported from SFPG Rec 01 so the KMF matches what a KVL/SKMS loaded into
+    /// the radio). Created Active. Returns the new version.
+    pub fn import_k(&mut self, issi: Issi, material: KeyMaterial) -> Result<u16> {
+        let sub = self
+            .db
+            .subscribers
+            .get_mut(&issi)
+            .ok_or_else(|| KmfError::NotFound(format!("subscriber {issi}")))?;
+        let version = sub.k.as_ref().map(|k| k.version + 1).unwrap_or(1);
+        let mut vk = VersionedKey::new(KeyKind::K, version, material)?;
+        vk.set_state(KeyState::Active)?;
+        sub.k = Some(vk);
+        self.audit
+            .record("key.k.import", format!("issi={issi} version={version}"))?;
+        self.persist()?;
+        Ok(version)
+    }
+
+    /// Set (or clear) a subscriber's TEI for SFPG Rec 01 K/TEI pairs.
+    pub fn set_tei(&mut self, issi: Issi, tei: Option<String>) -> Result<()> {
+        let sub = self
+            .db
+            .subscribers
+            .get_mut(&issi)
+            .ok_or_else(|| KmfError::NotFound(format!("subscriber {issi}")))?;
+        sub.tei = tei;
+        self.audit.record("subscriber.set_tei", format!("issi={issi}"))?;
+        self.persist()
     }
 
     /// Export subscriber K as hex for the initial physical fill. Sensitive.

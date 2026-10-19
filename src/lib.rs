@@ -29,6 +29,7 @@ pub mod keys;
 pub mod kmc;
 pub mod model;
 pub mod provision;
+pub mod rec01;
 pub mod sealing;
 pub mod store;
 pub mod types;

@@ -17,6 +17,9 @@ pub struct Subscriber {
     /// Authentication key K (versioned). None until a key is provisioned.
     pub k: Option<VersionedKey>,
     pub enabled: bool,
+    /// TETRA Equipment Identity (hardware serial), for SFPG Rec 01 K/TEI pairs.
+    #[serde(default)]
+    pub tei: Option<String>,
 }
 
 impl Subscriber {
@@ -26,6 +29,7 @@ impl Subscriber {
             label: label.into(),
             k: None,
             enabled: true,
+            tei: None,
         }
     }
 }

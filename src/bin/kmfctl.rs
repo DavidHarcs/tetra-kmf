@@ -74,6 +74,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: OtarCmd,
     },
+    /// Import/export K material (SFPG Rec 01-aligned) for external loaders (SKMS/KVL).
+    Keys {
+        #[command(subcommand)]
+        cmd: KeysCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -166,6 +171,16 @@ enum SubCmd {
     /// Print K as hex for the initial physical fill (SENSITIVE).
     ExportK { issi: u32 },
     CompromiseK { issi: u32 },
+    /// Set the TEI (equipment identity) for SFPG Rec 01 K/TEI pairs.
+    SetTei { issi: u32, tei: String },
+}
+
+#[derive(Subcommand)]
+enum KeysCmd {
+    /// Export all subscriber K (SENSITIVE) to a Rec 01-aligned CSV (written 0600).
+    Export { file: String },
+    /// Import K from a Rec 01-aligned CSV (sets K + TEI; creates missing subscribers).
+    Import { file: String },
 }
 
 #[derive(Subcommand)]
@@ -271,6 +286,36 @@ fn run() -> Result<()> {
                 }
             }
         },
+        Cmd::Keys { cmd } => match cmd {
+            KeysCmd::Export { file } => {
+                let csv = tetra_kmf::rec01::export_csv(kmc.db());
+                std::fs::write(&file, &csv)?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
+                }
+                let n = kmc.db().subscribers.values().filter(|s| s.k.is_some()).count();
+                eprintln!("!! SENSITIVE: wrote authentication key material to {file} (0600) — handle as keys");
+                println!("exported {n} K record(s)");
+            }
+            KeysCmd::Import { file } => {
+                let text = std::fs::read_to_string(&file)?;
+                let rows = tetra_kmf::rec01::parse_csv(&text)?;
+                let mut n = 0;
+                for r in rows {
+                    if !kmc.db().subscribers.contains_key(&r.issi) {
+                        kmc.add_subscriber(r.issi, "imported")?;
+                    }
+                    kmc.import_k(r.issi, r.k)?;
+                    if r.tei.is_some() {
+                        kmc.set_tei(r.issi, r.tei)?;
+                    }
+                    n += 1;
+                }
+                println!("imported {n} K record(s)");
+            }
+        },
         Cmd::Subscriber { cmd } => match cmd {
             SubCmd::Add { issi, label } => {
                 kmc.add_subscriber(issi, label)?;
@@ -298,6 +343,10 @@ fn run() -> Result<()> {
             SubCmd::CompromiseK { issi } => {
                 kmc.compromise_k(issi)?;
                 println!("flagged K for subscriber {issi} COMPROMISED");
+            }
+            SubCmd::SetTei { issi, tei } => {
+                kmc.set_tei(issi, Some(tei))?;
+                println!("set TEI for subscriber {issi}");
             }
         },
         Cmd::Group { cmd } => match cmd {

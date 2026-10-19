@@ -82,6 +82,11 @@ kmfctl otar provide-sck 2358245 1 1 --ksg 2 --swmi https://flowstation.local --i
 # provision a group's GCK to a radio (D-OTAR GCK PROVIDE)
 kmfctl otar provide-gck 2358245 314946 1 --gckn 100 --ksg 2 --swmi https://flowstation.local --insecure
 
+# exchange K with an external loader (Sepura SKMS / Motorola KVL), SFPG Rec 01-aligned
+kmfctl subscriber set-tei 2358245 00112233445566
+kmfctl keys export k.csv      # SENSITIVE: K in the clear, written 0600
+kmfctl keys import k.csv      # set K from an external tool’s export
+
 kmfctl status
 
 # web operator console (manage keys + provision + results in a browser)
