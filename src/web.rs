@@ -160,6 +160,13 @@ fn handle(mut stream: TcpStream, state: &WebState) -> std::io::Result<()> {
         let body = state_json(state);
         return respond(&mut stream, 200, "application/json", &body);
     }
+    if method == "GET" && path == "/api/keys/export" {
+        let csv = {
+            let kmc = state.kmc.lock().unwrap_or_else(|e| e.into_inner());
+            crate::rec01::export_csv(kmc.db())
+        };
+        return respond(&mut stream, 200, "text/csv", &csv);
+    }
     if method == "POST" && path.starts_with("/api/") {
         let v: Value = serde_json::from_str(body.trim()).unwrap_or(Value::Null);
         let (code, out) = api_post(state, &path, &v);
@@ -213,7 +220,7 @@ fn state_json(state: &WebState) -> String {
         .values()
         .map(|s| {
             json!({"issi": s.issi, "label": s.label, "enabled": s.enabled,
-                   "k": s.k.as_ref().map(vk)})
+                   "tei": s.tei, "k": s.k.as_ref().map(vk)})
         })
         .collect();
     let groups: Vec<Value> = db
@@ -290,6 +297,27 @@ fn api_post(state: &WebState, path: &str, v: &Value) -> (u16, Value) {
             "/api/gsko/gen" => {
                 let ver = kmc.generate_gsko()?;
                 Ok(json!({"ok": true, "version": ver}))
+            }
+            "/api/subscriber/settei" => {
+                let tei = s(v, "tei");
+                let tei = if tei.is_empty() { None } else { Some(tei) };
+                kmc.set_tei(u(v, "issi").unwrap_or(0) as u32, tei)?;
+                Ok(json!({"ok": true}))
+            }
+            "/api/keys/import" => {
+                let rows = crate::rec01::parse_csv(&s(v, "csv"))?;
+                let mut n = 0;
+                for r in rows {
+                    if !kmc.db().subscribers.contains_key(&r.issi) {
+                        kmc.add_subscriber(r.issi, "imported")?;
+                    }
+                    kmc.import_k(r.issi, r.k)?;
+                    if r.tei.is_some() {
+                        kmc.set_tei(r.issi, r.tei)?;
+                    }
+                    n += 1;
+                }
+                Ok(json!({"ok": true, "imported": n}))
             }
             "/api/provision/sck" | "/api/provision/gck" => {
                 let cfg = state

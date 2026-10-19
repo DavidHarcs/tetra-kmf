@@ -35,7 +35,7 @@
 <main>
   <div class="card">
     <h2>Subscribers &amp; authentication key (K)</h2>
-    <table><thead><tr><th>ISSI</th><th>Label</th><th>K</th><th></th></tr></thead><tbody id="subs"></tbody></table>
+    <table><thead><tr><th>ISSI</th><th>Label</th><th>K</th><th>TEI</th><th></th></tr></thead><tbody id="subs"></tbody></table>
     <form class="row" onsubmit="add('/api/subscriber/add',{issi:this.issi.value*1,label:this.label.value});return false">
       <label>ISSI<input name="issi" type="number" required></label>
       <label>Label<input name="label" placeholder="e.g. Dave MM7FDM"></label>
@@ -72,6 +72,17 @@
   </div>
 
   <div class="card">
+    <h2>Key interchange &mdash; external loader (SKMS / KVL)</h2>
+    <p class="muted">Export K for a loader to write into radios, or import K a loader generated so the KMF holds the same key. SFPG Rec 01&ndash;aligned. The export contains authentication key material in the clear.</p>
+    <p><a href="/api/keys/export" download="kmf-keys.csv"><button type="button">&#11015; Export K (CSV)</button></a></p>
+    <form onsubmit="importKeys(this);return false">
+      <label style="width:100%">Paste CSV to import (ISSI,TEI,K_hex)
+        <textarea name="csv" rows="4" style="width:100%;font-family:monospace;padding:8px;border:1px solid #e3e8ef;border-radius:6px;box-sizing:border-box"></textarea></label>
+      <button>&#11014; Import K</button>
+    </form>
+  </div>
+
+  <div class="card">
     <h2>OTAR — provision a key to a radio</h2>
     <p class="muted" id="prov-note"></p>
     <form class="row" onsubmit="provision('/api/provision/sck',{issi:this.issi.value*1,sckn:this.sckn.value*1,version:this.version.value*1,ksg:this.ksg.value*1});return false">
@@ -105,14 +116,17 @@ async function load(){
   $('#sw').textContent = d.swmi ? ('SwMI: '+d.swmi) : 'no SwMI configured';
   $('#prov-note').textContent = d.swmi ? ('Sealed under the radio’s K and sent to '+d.swmi+' to transmit over the air.') : 'Start the console with --swmi to enable provisioning.';
   $('#subs').innerHTML = (d.subscribers||[]).map(s=>`<tr><td>${s.issi}</td><td>${s.label||''}</td><td>${s.k?('K v'+s.k.version+' '+stc(s.k.state)):'<span class=muted>no K</span>'}</td>
+    <td>${s.tei||'<span class=muted>&mdash;</span>'} <button class="sm gray" onclick="setTei(${s.issi})">set</button></td>
     <td><button class="sm" onclick="add('/api/subscriber/genk',{issi:${s.issi}})">Gen/rotate K</button>
-        <button class="sm red" onclick="if(confirm('Mark K compromised?'))add('/api/subscriber/compromisek',{issi:${s.issi}})">Compromise</button></td></tr>`).join('') || '<tr><td colspan=4 class=muted>none</td></tr>';
+        <button class="sm red" onclick="if(confirm('Mark K compromised?'))add('/api/subscriber/compromisek',{issi:${s.issi}})">Compromise</button></td></tr>`).join('') || '<tr><td colspan=5 class=muted>none</td></tr>';
   $('#groups').innerHTML = (d.groups||[]).map(g=>`<tr><td>${g.gssi}</td><td>${g.label||''}</td><td>${(g.members||[]).map(m=>'<span class=pill>'+m+'</span>').join('')||'<span class=muted>none</span>'}</td>
     <td>${vers(g.gck)}<br><button class="sm" onclick="add('/api/group/gck',{gssi:${g.gssi}})">Gen GCK</button> <button class="sm gray" onclick="actGck(${g.gssi})">Activate…</button></td></tr>`).join('') || '<tr><td colspan=4 class=muted>none</td></tr>';
   $('#scks').innerHTML = (d.sck_slots||[]).map(s=>`<tr><td>${s.sckn}</td><td>${s.label||''}</td><td>${vers(s.versions)}</td>
     <td><button class="sm gray" onclick="actSck(${s.sckn})">Activate…</button></td></tr>`).join('') || '<tr><td colspan=4 class=muted>none</td></tr>';
   $('#gsko').innerHTML = vers(d.gsko);
 }
+function setTei(issi){ const t=prompt('TEI (equipment identity) for '+issi+':'); if(t!==null) add('/api/subscriber/settei',{issi, tei:t}); }
+async function importKeys(f){ const j=await post('/api/keys/import',{csv:f.csv.value}); if(j.ok){ toast('Imported '+j.imported+' K record(s)'); f.csv.value=''; load(); } else toast(j.error||'error', true); }
 function actSck(sckn){ const v=prompt('Activate SCKN '+sckn+' version:'); if(v) add('/api/sck/activate',{sckn, version:v*1}); }
 function actGck(gssi){ const v=prompt('Activate GCK version for GSSI '+gssi+':'); if(v) add('/api/group/gck/activate',{gssi, version:v*1}); }
 load();
