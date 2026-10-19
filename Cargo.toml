@@ -20,6 +20,7 @@ ring = "0.17"
 chrono = { version = "0.4", features = ["serde", "clock"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 clap = { version = "4", features = ["derive"] }
+tetra-security = { path = "../tetra-security" }
 
 [lib]
 name = "tetra_kmf"

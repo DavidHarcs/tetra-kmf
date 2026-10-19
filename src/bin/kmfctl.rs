@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use tetra_kmf::audit::AuditLog;
+use tetra_kmf::sealing::TetraSealer;
 use tetra_kmf::store::{EncryptedFileStore, JsonFileStore, KeyStore};
 use tetra_kmf::types::Sckn;
 use tetra_kmf::{Kmc, Result};
@@ -51,6 +52,18 @@ enum Cmd {
     },
     /// Generate a new GSKO (group session key for OTAR) version.
     GenGsko,
+    /// OTAR operations.
+    Otar {
+        #[command(subcommand)]
+        cmd: OtarCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum OtarCmd {
+    /// Seal an SCK version for a subscriber (prints the SSCK + RSO the SwMI
+    /// would transmit in a D-OTAR SCK PROVIDE PDU).
+    SealSck { issi: u32, sckn: u8, version: u16 },
 }
 
 #[derive(Subcommand)]
@@ -127,6 +140,16 @@ fn run() -> Result<()> {
             let v = kmc.generate_gsko()?;
             println!("generated GSKO version {v} (Staged)");
         }
+        Cmd::Otar { cmd } => match cmd {
+            OtarCmd::SealSck { issi, sckn, version } => {
+                let n = Sckn::new(sckn)?;
+                let sealed = kmc.seal_sck_for(&TetraSealer, issi, n, version)?;
+                println!("sealed SCK {sckn} v{version} for subscriber {issi}:");
+                println!("  SSCK = {}", hex::encode(&sealed.sealed));
+                println!("  RSO  = {}", hex::encode(&sealed.rso));
+                eprintln!("(the SwMI transmits SSCK+RSO in a D-OTAR SCK PROVIDE PDU)");
+            }
+        },
         Cmd::Subscriber { cmd } => match cmd {
             SubCmd::Add { issi, label } => {
                 kmc.add_subscriber(issi, label)?;

@@ -12,6 +12,7 @@ use crate::error::{KmfError, Result};
 use crate::gen::random_key;
 use crate::keys::{KeyKind, KeyState, VersionedKey};
 use crate::model::{Database, Group, SckSlot, Subscriber};
+use crate::provision::{KeyRef, ProvisionJob, SealedKey, Sealer};
 use crate::store::KeyStore;
 use crate::types::{Gssi, Issi, Sckn};
 
@@ -216,6 +217,50 @@ impl<S: KeyStore> Kmc<S> {
             .record("key.gsko.generate", format!("version={version}"))?;
         self.persist()?;
         Ok(version)
+    }
+
+    // --- OTAR --------------------------------------------------------------
+
+    /// Seal an SCK version for a target subscriber, ready for the SwMI to carry
+    /// in a D-OTAR SCK PROVIDE PDU. The subscriber's K must be present and not
+    /// compromised, and the SCK version must exist. The `sealer` is injected so
+    /// the KMC core stays independent of the crypto implementation.
+    pub fn seal_sck_for<SE: Sealer>(
+        &self,
+        sealer: &SE,
+        issi: Issi,
+        sckn: Sckn,
+        version: u16,
+    ) -> Result<SealedKey> {
+        let sub = self
+            .db
+            .subscribers
+            .get(&issi)
+            .ok_or_else(|| KmfError::NotFound(format!("subscriber {issi}")))?;
+        let k = sub
+            .k
+            .as_ref()
+            .ok_or_else(|| KmfError::NotFound(format!("K for subscriber {issi}")))?;
+        if k.state == KeyState::Compromised {
+            return Err(KmfError::Policy(format!("K for subscriber {issi} is compromised")));
+        }
+        let slot = self
+            .db
+            .sck_slots
+            .get(&sckn.get())
+            .ok_or_else(|| KmfError::NotFound(format!("sck slot {sckn}")))?;
+        let skv = slot
+            .versions
+            .iter()
+            .find(|v| v.version == version)
+            .ok_or_else(|| KmfError::NotFound(format!("SCK {sckn} v{version}")))?;
+        let job = ProvisionJob::new(issi, KeyRef::Sck { sckn, version });
+        let sealed = sealer.seal(&job, &k.material, &skv.material)?;
+        self.audit.record(
+            "otar.sck.seal",
+            format!("issi={issi} sckn={sckn} version={version}"),
+        )?;
+        Ok(sealed)
     }
 
     // --- lifecycle (compromise) -------------------------------------------

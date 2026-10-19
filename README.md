@@ -28,8 +28,26 @@ and never written to the audit log.
 
 ## Build
 
+tetra-kmf depends on the [`tetra-security`](https://github.com/DavidHarcs/tetra-security)
+crate for the OTAR sealing crypto. Until that crate is published to crates.io it
+is referenced by path, so check both out side by side:
+
+```
+~/src/tetra-security
+~/src/tetra-kmf
+```
+
 ```bash
 cargo build --release
+```
+
+## Encryption at rest
+
+Set a master passphrase and the store is sealed with AES-256-GCM (otherwise a
+plaintext dev store is used, with a warning):
+
+```bash
+export TETRA_KMF_MASTER_KEY="your operator passphrase"
 ```
 
 ## Quick start (`kmfctl`)
@@ -55,6 +73,9 @@ kmfctl sck activate 1 1
 # OTAR group key-encryption key
 kmfctl gen-gsko
 
+# seal an SCK for a subscriber, ready for the SwMI to transmit (D-OTAR SCK PROVIDE)
+kmfctl otar seal-sck 2358245 1 1
+
 kmfctl status
 ```
 
@@ -68,18 +89,25 @@ kmfctl subscriber export-k 2358245
 
 - **Phase 1 (done):** domain model, key store, secure generation, lifecycle,
   audit log, CLI.
-- **Phase 2:** at-rest AEAD encryption of the store; OTAR **sealing**
-  (TA41 → KSO, TA51/TA52 for SCK, TA81 for GCK) via `tetra-security`; a **SwMI
-  connector** that drives FlowStation to transmit D-OTAR and report results.
+- **Phase 2a (done):** at-rest **AES-256-GCM** encryption of the store
+  (passphrase-derived key).
+- **Phase 2b (done):** OTAR **SCK sealing** (TA41 → KSO, TA51 for SCK) via the
+  `tetra-security` crate. GCK sealing (TA81) lands when `tetra-security` exposes
+  it.
+- **Phase 2c (next):** a **SwMI connector** that hands sealed keys to FlowStation
+  to transmit the D-OTAR PDU and report the radio's result.
 - **Phase 3:** web operator console; crypto-period automation; multi-site
   (links into a TETRA network core).
 
 ## Security notes
 
-- Phase 1's `JsonFileStore` keeps key material in **plaintext JSON** (0600). It
-  is a developer backend — at-rest encryption lands in Phase 2. Do not use it
-  for production key material yet.
-- Never commit `kmf-db.json` / `kmf-audit.jsonl` (see `.gitignore`).
+- With `TETRA_KMF_MASTER_KEY` set, the store is encrypted at rest (AES-256-GCM).
+  Without it, `JsonFileStore` keeps key material in **plaintext JSON** (0600) —
+  development only.
+- Secret material is zeroised in memory on drop and never written to the audit
+  log. Never commit `kmf-db.json` / `kmf-audit.jsonl` (see `.gitignore`).
+- Air-interface encryption on the amateur bands is not permitted; use these
+  tools for authentication, interoperability and testing within your rules.
 
 ## Support
 
