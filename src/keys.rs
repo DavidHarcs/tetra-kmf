@@ -28,8 +28,9 @@ impl KeyKind {
     /// Required key length in bytes.
     pub fn byte_len(self) -> usize {
         match self {
-            KeyKind::K => 16, // 128-bit
-            KeyKind::Sck | KeyKind::Gck | KeyKind::Gsko | KeyKind::Cck => 10, // 80-bit
+            KeyKind::K => 16,   // 128-bit
+            KeyKind::Gsko => 12, // 96-bit (the TB7 input that forms the GCK sealing key)
+            KeyKind::Sck | KeyKind::Gck | KeyKind::Cck => 10, // 80-bit
         }
     }
 

@@ -18,7 +18,7 @@ versions, and hand sealed keys to the infrastructure for over-the-air rekeying.
 | K     | Subscriber authentication key (root secret)      | 128-bit |
 | SCK   | Static Cipher Key, class 2, numbered SCKN 1–32   | 80-bit |
 | GCK   | Group Cipher Key, per talkgroup                  | 80-bit |
-| GSKO  | Group Session Key for OTAR (group KEK)           | 80-bit |
+| GSKO  | Group Session Key for OTAR (group KEK)           | 96-bit |
 | CCK   | Common Cipher Key, class 3, per location area    | 80-bit |
 
 Each key is **versioned** (SCK-VN / GCK-VN …), carries a **crypto-period**, and
