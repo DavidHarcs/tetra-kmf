@@ -12,7 +12,7 @@ use crate::error::{KmfError, Result};
 use crate::gen::random_key;
 use crate::keys::{KeyKind, KeyState, VersionedKey};
 use crate::model::{Database, Group, SckSlot, Subscriber};
-use crate::provision::{KeyRef, ProvisionJob, SealedKey, Sealer};
+use crate::provision::{KeyRef, ProvisionJob, SealedKey, Sealer, SwmiConnector};
 use crate::store::KeyStore;
 use crate::types::{Gssi, Issi, Sckn};
 
@@ -261,6 +261,34 @@ impl<S: KeyStore> Kmc<S> {
             format!("issi={issi} sckn={sckn} version={version}"),
         )?;
         Ok(sealed)
+    }
+
+    /// Seal an SCK for `issi` and hand it to the SwMI connector to transmit as a
+    /// D-OTAR SCK PROVIDE. K never leaves the KMF. `ksg` is the 1-based TEA number
+    /// (1=TEA1, 2=TEA2, 3=TEA3). Returns the SwMI's acceptance status.
+    pub fn provision_sck<SE: Sealer, SW: SwmiConnector>(
+        &self,
+        sealer: &SE,
+        connector: &SW,
+        issi: Issi,
+        sckn: Sckn,
+        version: u16,
+        ksg: u8,
+    ) -> Result<String> {
+        let sealed = self.seal_sck_for(sealer, issi, sckn, version)?;
+        let status = connector.provide_sck(
+            issi,
+            sckn.air(),
+            version,
+            ksg.saturating_sub(1),
+            &sealed.sealed,
+            &sealed.rso,
+        )?;
+        self.audit.record(
+            "otar.sck.provision",
+            format!("issi={issi} sckn={sckn} version={version} ksg={ksg} status={status}"),
+        )?;
+        Ok(status)
     }
 
     // --- lifecycle (compromise) -------------------------------------------

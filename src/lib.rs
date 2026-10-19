@@ -21,6 +21,7 @@
 //! `tetra-security`), a SwMI connector, and a web operator console.
 
 pub mod audit;
+pub mod connector;
 pub mod crypto;
 pub mod error;
 pub mod gen;

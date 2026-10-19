@@ -71,8 +71,17 @@ pub trait Sealer {
     fn seal(&self, job: &ProvisionJob, k: &KeyMaterial, key: &KeyMaterial) -> Result<SealedKey>;
 }
 
-/// Delivers a sealed key to the SwMI, which transmits the D-OTAR PDU and reports
-/// the radio's result. Implemented in Phase 2 (FlowStation connector).
+/// Delivers a sealed SCK to the SwMI, which transmits the D-OTAR SCK PROVIDE PDU
+/// (and later reports the radio's result). All numbers are the on-air values the
+/// PDU carries. Returns the SwMI's acceptance status string.
 pub trait SwmiConnector {
-    fn provision(&self, sealed: &SealedKey) -> Result<JobStatus>;
+    fn provide_sck(
+        &self,
+        issi: Issi,
+        sckn_air: u8,
+        sck_vn: u16,
+        ksg_air: u8,
+        ssck: &[u8],
+        rso: &[u8],
+    ) -> Result<String>;
 }

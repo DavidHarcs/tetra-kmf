@@ -45,7 +45,9 @@ impl Sealer for TetraSealer {
                 let mut rso = [0u8; 10];
                 OsRng.fill_bytes(&mut rso);
                 let kso = ta41(&k16, &rso);
-                let ssck = ta51(&sck10, *version, &kso, sckn.get());
+                // Seal with the 0-based on-air SCKN, matching what the SwMI puts
+                // in the PDU and what the radio uses to unseal.
+                let ssck = ta51(&sck10, *version, &kso, sckn.air());
                 Ok(SealedKey {
                     target: job.target,
                     key_ref: job.key_ref.clone(),
@@ -92,7 +94,8 @@ mod tests {
         let (recovered_sck, recovered_sckn) =
             tetra_security::taa1::otar::ta52(&ssck15, &kso, version).unwrap();
         assert_eq!(&recovered_sck[..], sck.as_bytes());
-        assert_eq!(recovered_sckn, 7);
+        // Sealed with the on-air (0-based) SCKN, so TA52 recovers SCKN 7 - 1 = 6.
+        assert_eq!(recovered_sckn, sckn.air());
     }
 
     #[test]

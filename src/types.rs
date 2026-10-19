@@ -30,6 +30,12 @@ impl Sckn {
     pub fn get(self) -> u8 {
         self.0
     }
+
+    /// 0-based on-air SCK number (EN 300 392-7 clause A.8.70: air value 0 = SCK
+    /// number 1). This is the value used in the sealing and in the D-OTAR PDU.
+    pub fn air(self) -> u8 {
+        (self.0 - 1) & 0x1f
+    }
 }
 
 impl std::fmt::Display for Sckn {

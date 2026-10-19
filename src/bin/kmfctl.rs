@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use tetra_kmf::audit::AuditLog;
+use tetra_kmf::connector::HttpSwmiConnector;
 use tetra_kmf::sealing::TetraSealer;
 use tetra_kmf::store::{EncryptedFileStore, JsonFileStore, KeyStore};
 use tetra_kmf::types::Sckn;
@@ -64,6 +65,21 @@ enum OtarCmd {
     /// Seal an SCK version for a subscriber (prints the SSCK + RSO the SwMI
     /// would transmit in a D-OTAR SCK PROVIDE PDU).
     SealSck { issi: u32, sckn: u8, version: u16 },
+    /// Seal an SCK and send it to a FlowStation SwMI to transmit over the air.
+    ProvideSck {
+        issi: u32,
+        sckn: u8,
+        version: u16,
+        /// 1-based TEA number (1=TEA1, 2=TEA2, 3=TEA3).
+        #[arg(long, default_value_t = 2)]
+        ksg: u8,
+        /// SwMI base URL, e.g. https://flowstation.local
+        #[arg(long)]
+        swmi: String,
+        /// Accept the SwMI's self-signed TLS certificate.
+        #[arg(long, default_value_t = false)]
+        insecure: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -148,6 +164,12 @@ fn run() -> Result<()> {
                 println!("  SSCK = {}", hex::encode(&sealed.sealed));
                 println!("  RSO  = {}", hex::encode(&sealed.rso));
                 eprintln!("(the SwMI transmits SSCK+RSO in a D-OTAR SCK PROVIDE PDU)");
+            }
+            OtarCmd::ProvideSck { issi, sckn, version, ksg, swmi, insecure } => {
+                let n = Sckn::new(sckn)?;
+                let connector = HttpSwmiConnector::new(&swmi, insecure)?;
+                let status = kmc.provision_sck(&TetraSealer, &connector, issi, n, version, ksg)?;
+                println!("provisioned SCK {sckn} v{version} to ISSI {issi} via {swmi}: {status}");
             }
         },
         Cmd::Subscriber { cmd } => match cmd {
