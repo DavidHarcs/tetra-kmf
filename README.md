@@ -90,9 +90,10 @@ kmfctl keys import k.csv      # set K from an external tool’s export
 kmfctl status
 
 # web operator console (manage keys + provision + results in a browser)
-TETRA_KMF_SWMI_PASSWORD=... kmfctl serve --bind 127.0.0.1:8088 \
+TETRA_KMF_CONSOLE_PASSWORD=... TETRA_KMF_SWMI_PASSWORD=... \
+    kmfctl serve --bind 127.0.0.1:8088 \
     --swmi https://flowstation.local --insecure
-# then open http://127.0.0.1:8088
+# then open http://127.0.0.1:8088 and log in (default user: admin)
 ```
 
 Export a subscriber's K as hex for the **initial physical fill** (sensitive):

@@ -17,10 +17,13 @@ use crate::sealing::TetraSealer;
 use crate::store::KeyStore;
 use crate::types::Sckn;
 use crate::Kmc;
+use rand::RngCore;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// SwMI target used by the provisioning endpoints.
 pub struct SwmiCfg {
@@ -30,9 +33,54 @@ pub struct SwmiCfg {
     pub password: String,
 }
 
+/// Console login credentials. When `None`, the console is unauthenticated
+/// (localhost dev only).
+pub struct Auth {
+    pub user: String,
+    pub password: String,
+}
+
+const SESSION_TTL: Duration = Duration::from_secs(8 * 3600);
+
 pub struct WebState {
     pub kmc: Mutex<Kmc<Box<dyn KeyStore>>>,
     pub swmi: Option<SwmiCfg>,
+    pub auth: Option<Auth>,
+    pub sessions: Mutex<HashMap<String, Instant>>,
+}
+
+impl WebState {
+    pub fn new(kmc: Kmc<Box<dyn KeyStore>>, swmi: Option<SwmiCfg>, auth: Option<Auth>) -> Self {
+        WebState { kmc: Mutex::new(kmc), swmi, auth, sessions: Mutex::new(HashMap::new()) }
+    }
+
+    fn new_session(&self) -> String {
+        let mut b = [0u8; 16];
+        rand::rngs::OsRng.fill_bytes(&mut b);
+        let tok = hex::encode(b);
+        if let Ok(mut m) = self.sessions.lock() {
+            let now = Instant::now();
+            m.retain(|_, t| now.duration_since(*t) < SESSION_TTL);
+            m.insert(tok.clone(), now);
+        }
+        tok
+    }
+
+    fn session_valid(&self, cookie_header: &str) -> bool {
+        let tok = cookie_header
+            .split(';')
+            .find_map(|kv| kv.trim().strip_prefix("kmf_session="));
+        let Some(tok) = tok else { return false };
+        if let Ok(mut m) = self.sessions.lock() {
+            if let Some(t) = m.get(tok).copied() {
+                if Instant::now().duration_since(t) < SESSION_TTL {
+                    return true;
+                }
+                m.remove(tok);
+            }
+        }
+        false
+    }
 }
 
 /// Run the console until the process is killed. Blocking.
@@ -60,8 +108,9 @@ fn handle(mut stream: TcpStream, state: &WebState) -> std::io::Result<()> {
     let method = parts.next().unwrap_or("").to_string();
     let path = parts.next().unwrap_or("/").to_string();
 
-    // Headers → Content-Length.
+    // Headers → Content-Length + Cookie.
     let mut content_length = 0usize;
+    let mut cookie_hdr = String::new();
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {
@@ -71,8 +120,11 @@ fn handle(mut stream: TcpStream, state: &WebState) -> std::io::Result<()> {
         if t.is_empty() {
             break;
         }
-        if let Some(v) = t.to_ascii_lowercase().strip_prefix("content-length:") {
+        let lower = t.to_ascii_lowercase();
+        if let Some(v) = lower.strip_prefix("content-length:") {
             content_length = v.trim().parse().unwrap_or(0);
+        } else if lower.starts_with("cookie:") {
+            cookie_hdr = t.split_once(':').map(|(_, v)| v).unwrap_or("").trim().to_string();
         }
     }
     let mut body = vec![0u8; content_length.min(1 << 20)];
@@ -80,6 +132,26 @@ fn handle(mut stream: TcpStream, state: &WebState) -> std::io::Result<()> {
         reader.read_exact(&mut body)?;
     }
     let body = String::from_utf8_lossy(&body).to_string();
+
+    // --- auth gate (when a console password is configured) ---
+    if let Some(auth) = &state.auth {
+        if method == "POST" && path == "/api/login" {
+            let v: Value = serde_json::from_str(body.trim()).unwrap_or(Value::Null);
+            if s(&v, "user") == auth.user && s(&v, "password") == auth.password {
+                let tok = state.new_session();
+                let ck = format!("kmf_session={tok}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800");
+                return respond_cookie(&mut stream, 200, "application/json", "{\"ok\":true}", Some(&ck));
+            }
+            return respond(&mut stream, 401, "application/json", "{\"ok\":false,\"error\":\"invalid login\"}");
+        }
+        if !state.session_valid(&cookie_hdr) {
+            // Login page only for the console page; API routes get a clean 401.
+            if method == "GET" && !path.starts_with("/api/") {
+                return respond(&mut stream, 200, "text/html; charset=utf-8", LOGIN_HTML);
+            }
+            return respond(&mut stream, 401, "application/json", "{\"error\":\"unauthorized\"}");
+        }
+    }
 
     if method == "GET" && (path == "/" || path.starts_with("/index")) {
         return respond(&mut stream, 200, "text/html; charset=utf-8", INDEX_HTML);
@@ -97,20 +169,37 @@ fn handle(mut stream: TcpStream, state: &WebState) -> std::io::Result<()> {
 }
 
 fn respond(stream: &mut TcpStream, code: u16, ctype: &str, body: &str) -> std::io::Result<()> {
+    respond_cookie(stream, code, ctype, body, None)
+}
+
+fn respond_cookie(
+    stream: &mut TcpStream,
+    code: u16,
+    ctype: &str,
+    body: &str,
+    set_cookie: Option<&str>,
+) -> std::io::Result<()> {
     let reason = match code {
         200 => "OK",
         400 => "Bad Request",
+        401 => "Unauthorized",
         404 => "Not Found",
         500 => "Internal Server Error",
         _ => "OK",
     };
+    let ck = set_cookie.map(|c| format!("Set-Cookie: {c}\r\n")).unwrap_or_default();
     let resp = format!(
-        "HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\n{ck}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(resp.as_bytes())?;
     stream.flush()
 }
+
+const LOGIN_HTML: &str = r#"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>KMF Login</title>
+<style>body{font:15px system-ui,-apple-system,Segoe UI,sans-serif;background:#1b2430;color:#fff;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}form{background:#fff;color:#1b2430;padding:24px;border-radius:10px;min-width:280px;box-shadow:0 8px 30px rgba(0,0,0,.3)}h1{font-size:16px;margin:0 0 14px}input{width:100%;padding:9px;margin:6px 0;border:1px solid #cdd5df;border-radius:6px;box-sizing:border-box}button{width:100%;padding:10px;background:#0d6efd;color:#fff;border:0;border-radius:6px;font-size:15px;cursor:pointer;margin-top:6px}.e{color:#dc3545;font-size:13px;min-height:16px}</style></head>
+<body><form onsubmit="return login(this)"><h1>&#128273; TETRA KMF Console</h1><input name=user placeholder=User value=admin autofocus><input name=password type=password placeholder=Password><div class=e id=e></div><button>Sign in</button></form>
+<script>async function login(f){const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:f.user.value,password:f.password.value})});if(r.ok){location.href='/'}else{document.getElementById('e').textContent='Invalid login'}return false}</script></body></html>"#;
 
 fn vk(v: &VersionedKey) -> Value {
     json!({"version": v.version, "state": format!("{:?}", v.state)})

@@ -68,6 +68,13 @@ enum Cmd {
         password: Option<String>,
         #[arg(long, default_value_t = false)]
         insecure: bool,
+        /// Console login user.
+        #[arg(long, default_value = "admin")]
+        console_user: String,
+        /// Console login password (or env TETRA_KMF_CONSOLE_PASSWORD). If unset,
+        /// the console runs WITHOUT login (localhost only).
+        #[arg(long)]
+        console_password: Option<String>,
     },
     /// OTAR operations.
     Otar {
@@ -247,14 +254,23 @@ fn run() -> Result<()> {
             let v = kmc.generate_gsko()?;
             println!("generated GSKO version {v} (Staged)");
         }
-        Cmd::Serve { bind, swmi, user, password, insecure } => {
+        Cmd::Serve { bind, swmi, user, password, insecure, console_user, console_password } => {
             let swmi = swmi.map(|url| {
                 let password = password
                     .or_else(|| std::env::var("TETRA_KMF_SWMI_PASSWORD").ok())
                     .unwrap_or_default();
                 tetra_kmf::web::SwmiCfg { url, insecure, user, password }
             });
-            let state = tetra_kmf::web::WebState { kmc: std::sync::Mutex::new(kmc), swmi };
+            let auth = console_password
+                .or_else(|| std::env::var("TETRA_KMF_CONSOLE_PASSWORD").ok())
+                .filter(|p| !p.is_empty())
+                .map(|password| tetra_kmf::web::Auth { user: console_user, password });
+            if auth.is_none() {
+                eprintln!(
+                    "warning: no console password set — running WITHOUT login (localhost only); set --console-password or TETRA_KMF_CONSOLE_PASSWORD"
+                );
+            }
+            let state = tetra_kmf::web::WebState::new(kmc, swmi, auth);
             tetra_kmf::web::serve(state, &bind)?;
         }
         Cmd::Otar { cmd } => match cmd {
