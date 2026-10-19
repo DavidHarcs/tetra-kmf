@@ -198,7 +198,7 @@ fn respond_cookie(
 
 const LOGIN_HTML: &str = r#"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>KMF Login</title>
 <style>body{font:15px system-ui,-apple-system,Segoe UI,sans-serif;background:#1b2430;color:#fff;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}form{background:#fff;color:#1b2430;padding:24px;border-radius:10px;min-width:280px;box-shadow:0 8px 30px rgba(0,0,0,.3)}h1{font-size:16px;margin:0 0 14px}input{width:100%;padding:9px;margin:6px 0;border:1px solid #cdd5df;border-radius:6px;box-sizing:border-box}button{width:100%;padding:10px;background:#0d6efd;color:#fff;border:0;border-radius:6px;font-size:15px;cursor:pointer;margin-top:6px}.e{color:#dc3545;font-size:13px;min-height:16px}</style></head>
-<body><form onsubmit="return login(this)"><h1>&#128273; TETRA KMF Console</h1><input name=user placeholder=User value=admin autofocus><input name=password type=password placeholder=Password><div class=e id=e></div><button>Sign in</button></form>
+<body><form onsubmit="login(this);return false"><h1>&#128273; TETRA KMF Console</h1><input name=user placeholder=User value=admin autofocus><input name=password type=password placeholder=Password><div class=e id=e></div><button>Sign in</button></form>
 <script>async function login(f){const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:f.user.value,password:f.password.value})});if(r.ok){location.href='/'}else{document.getElementById('e').textContent='Invalid login'}return false}</script></body></html>"#;
 
 fn vk(v: &VersionedKey) -> Value {

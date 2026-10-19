@@ -36,7 +36,7 @@
   <div class="card">
     <h2>Subscribers &amp; authentication key (K)</h2>
     <table><thead><tr><th>ISSI</th><th>Label</th><th>K</th><th></th></tr></thead><tbody id="subs"></tbody></table>
-    <form class="row" onsubmit="return add('/api/subscriber/add',{issi:this.issi.value*1,label:this.label.value})">
+    <form class="row" onsubmit="add('/api/subscriber/add',{issi:this.issi.value*1,label:this.label.value});return false">
       <label>ISSI<input name="issi" type="number" required></label>
       <label>Label<input name="label" placeholder="e.g. Dave MM7FDM"></label>
       <button>Add subscriber</button>
@@ -46,11 +46,11 @@
   <div class="card">
     <h2>Talkgroups &amp; group cipher key (GCK)</h2>
     <table><thead><tr><th>GSSI</th><th>Label</th><th>Members</th><th>GCK versions</th></tr></thead><tbody id="groups"></tbody></table>
-    <form class="row" onsubmit="return add('/api/group/add',{gssi:this.gssi.value*1,label:this.label.value})">
+    <form class="row" onsubmit="add('/api/group/add',{gssi:this.gssi.value*1,label:this.label.value});return false">
       <label>GSSI<input name="gssi" type="number" required></label>
       <label>Label<input name="label"></label><button>Add group</button>
     </form>
-    <form class="row" onsubmit="return add('/api/group/member',{gssi:this.gssi.value*1,issi:this.issi.value*1})">
+    <form class="row" onsubmit="add('/api/group/member',{gssi:this.gssi.value*1,issi:this.issi.value*1});return false">
       <label>GSSI<input name="gssi" type="number" required></label>
       <label>add ISSI<input name="issi" type="number" required></label><button class="gray">Add member</button>
     </form>
@@ -59,7 +59,7 @@
   <div class="card">
     <h2>Static cipher keys (SCK, SCKN 1–32)</h2>
     <table><thead><tr><th>SCKN</th><th>Label</th><th>Versions</th><th></th></tr></thead><tbody id="scks"></tbody></table>
-    <form class="row" onsubmit="return add('/api/sck/gen',{sckn:this.sckn.value*1,label:this.label.value})">
+    <form class="row" onsubmit="add('/api/sck/gen',{sckn:this.sckn.value*1,label:this.label.value});return false">
       <label>SCKN<input name="sckn" type="number" min="1" max="32" required></label>
       <label>Label<input name="label"></label><button>Generate SCK version</button>
     </form>
@@ -68,20 +68,20 @@
   <div class="card">
     <h2>GSKO (group key-encryption key)</h2>
     <div id="gsko" class="muted"></div>
-    <form class="row" onsubmit="return add('/api/gsko/gen',{})"><button>Generate GSKO version</button></form>
+    <form class="row" onsubmit="add('/api/gsko/gen',{});return false"><button>Generate GSKO version</button></form>
   </div>
 
   <div class="card">
     <h2>OTAR — provision a key to a radio</h2>
     <p class="muted" id="prov-note"></p>
-    <form class="row" onsubmit="return provision('/api/provision/sck',{issi:this.issi.value*1,sckn:this.sckn.value*1,version:this.version.value*1,ksg:this.ksg.value*1})">
+    <form class="row" onsubmit="provision('/api/provision/sck',{issi:this.issi.value*1,sckn:this.sckn.value*1,version:this.version.value*1,ksg:this.ksg.value*1});return false">
       <label>ISSI<input name="issi" type="number" required></label>
       <label>SCKN<input name="sckn" type="number" min="1" max="32" required></label>
       <label>Version<input name="version" type="number" value="1" required></label>
       <label>KSG<select name="ksg"><option value="1">TEA1</option><option value="2" selected>TEA2</option><option value="3">TEA3</option></select></label>
       <button>Provision SCK</button>
     </form>
-    <form class="row" onsubmit="return provision('/api/provision/gck',{issi:this.issi.value*1,gssi:this.gssi.value*1,version:this.version.value*1,gckn:this.gckn.value*1,ksg:this.ksg.value*1})">
+    <form class="row" onsubmit="provision('/api/provision/gck',{issi:this.issi.value*1,gssi:this.gssi.value*1,version:this.version.value*1,gckn:this.gckn.value*1,ksg:this.ksg.value*1});return false">
       <label>ISSI<input name="issi" type="number" required></label>
       <label>GSSI<input name="gssi" type="number" required></label>
       <label>Version<input name="version" type="number" value="1" required></label>
