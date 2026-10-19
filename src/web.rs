@@ -189,7 +189,7 @@ fn respond_cookie(
     };
     let ck = set_cookie.map(|c| format!("Set-Cookie: {c}\r\n")).unwrap_or_default();
     let resp = format!(
-        "HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\n{ck}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\nCache-Control: no-store\r\n{ck}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(resp.as_bytes())?;
