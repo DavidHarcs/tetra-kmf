@@ -28,7 +28,7 @@ mod tests {
         assert_eq!(random_key(KeyKind::K).len(), 16);
         assert_eq!(random_key(KeyKind::Sck).len(), 10);
         assert_eq!(random_key(KeyKind::Gck).len(), 10);
-        assert_eq!(random_key(KeyKind::Gsko).len(), 10);
+        assert_eq!(random_key(KeyKind::Gsko).len(), 12);
         assert_eq!(random_key(KeyKind::Cck).len(), 10);
     }
 
