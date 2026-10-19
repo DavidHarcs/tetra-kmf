@@ -53,6 +53,22 @@ enum Cmd {
     },
     /// Generate a new GSKO (group session key for OTAR) version.
     GenGsko,
+    /// Run the web operator console.
+    Serve {
+        /// Address to bind (keep on localhost / a trusted host — no built-in auth).
+        #[arg(long, default_value = "127.0.0.1:8088")]
+        bind: String,
+        /// SwMI base URL to provision to, e.g. https://flowstation.local
+        #[arg(long)]
+        swmi: Option<String>,
+        #[arg(long, default_value = "admin")]
+        user: String,
+        /// SwMI dashboard password (or env TETRA_KMF_SWMI_PASSWORD).
+        #[arg(long)]
+        password: Option<String>,
+        #[arg(long, default_value_t = false)]
+        insecure: bool,
+    },
     /// OTAR operations.
     Otar {
         #[command(subcommand)]
@@ -215,6 +231,16 @@ fn run() -> Result<()> {
         Cmd::GenGsko => {
             let v = kmc.generate_gsko()?;
             println!("generated GSKO version {v} (Staged)");
+        }
+        Cmd::Serve { bind, swmi, user, password, insecure } => {
+            let swmi = swmi.map(|url| {
+                let password = password
+                    .or_else(|| std::env::var("TETRA_KMF_SWMI_PASSWORD").ok())
+                    .unwrap_or_default();
+                tetra_kmf::web::SwmiCfg { url, insecure, user, password }
+            });
+            let state = tetra_kmf::web::WebState { kmc: std::sync::Mutex::new(kmc), swmi };
+            tetra_kmf::web::serve(state, &bind)?;
         }
         Cmd::Otar { cmd } => match cmd {
             OtarCmd::SealSck { issi, sckn, version } => {

@@ -83,6 +83,11 @@ kmfctl otar provide-sck 2358245 1 1 --ksg 2 --swmi https://flowstation.local --i
 kmfctl otar provide-gck 2358245 314946 1 --gckn 100 --ksg 2 --swmi https://flowstation.local --insecure
 
 kmfctl status
+
+# web operator console (manage keys + provision + results in a browser)
+TETRA_KMF_SWMI_PASSWORD=... kmfctl serve --bind 127.0.0.1:8088 \
+    --swmi https://flowstation.local --insecure
+# then open http://127.0.0.1:8088
 ```
 
 Export a subscriber's K as hex for the **initial physical fill** (sensitive):
@@ -103,8 +108,10 @@ kmfctl subscriber export-k 2358245
   sealed SCK or GCK to FlowStation's `POST /api/otar/sck` / `/api/otar/gck`,
   which transmits the D-OTAR PROVIDE PDU. K never leaves the KMF (Model B).
   Reporting the radio's result back up to the KMF is the remaining loop-closer.
-- **Phase 3:** web operator console; crypto-period automation; multi-site
-  (links into a TETRA network core).
+- **Phase 3 (in progress):** **web operator console** (serve subcommand) — manage
+  subscribers/groups/keys and one-click SCK/GCK provisioning in a browser; key
+  material is never exposed over the API. Still to come: crypto-period
+  automation and multi-site.
 
 ## Security notes
 

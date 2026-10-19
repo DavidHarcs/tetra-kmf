@@ -32,6 +32,7 @@ pub mod provision;
 pub mod sealing;
 pub mod store;
 pub mod types;
+pub mod web;
 
 pub use error::{KmfError, Result};
 pub use kmc::Kmc;

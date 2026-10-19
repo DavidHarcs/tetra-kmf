@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TETRA KMF Console</title>
+<style>
+  :root { --blue:#0d6efd; --blue2:#0b5ed7; --ink:#1b2430; --mut:#6b7684; --bg:#f4f6f9; --card:#fff; --line:#e3e8ef; --ok:#198754; --warn:#b8860b; --bad:#dc3545; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--ink); background:var(--bg); }
+  header { background:var(--ink); color:#fff; padding:12px 20px; display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .sw { margin-left:auto; font-size:12px; color:#9fb3c8; }
+  main { max-width:1100px; margin:0 auto; padding:18px 16px 60px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin:0 0 16px; }
+  .card h2 { font-size:14px; margin:0 0 10px; color:var(--ink); text-transform:uppercase; letter-spacing:.04em; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:600; }
+  form.row { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin:10px 0 0; }
+  label { display:flex; flex-direction:column; font-size:11px; color:var(--mut); gap:3px; }
+  input,select { padding:6px 8px; border:1px solid var(--line); border-radius:6px; font:inherit; min-width:90px; }
+  button { background:var(--blue); color:#fff; border:0; border-radius:6px; padding:7px 12px; font:inherit; cursor:pointer; }
+  button:hover { background:var(--blue2); }
+  button.sm { padding:3px 8px; font-size:12px; }
+  button.gray { background:#64748b; } button.gray:hover{ background:#475569; }
+  button.red { background:var(--bad); } button.red:hover{ background:#b52b38; }
+  .st-Active{color:var(--ok);font-weight:600} .st-Staged{color:var(--warn)} .st-Retired{color:var(--mut)} .st-Compromised{color:var(--bad);font-weight:600} .st-Suspended{color:var(--mut)}
+  .muted{color:var(--mut)} .pill{display:inline-block;background:#eef2f7;border-radius:10px;padding:1px 8px;margin:1px;font-size:12px}
+  #toast{position:fixed;right:16px;bottom:16px;max-width:360px;padding:10px 14px;border-radius:8px;color:#fff;background:var(--ink);box-shadow:0 4px 16px rgba(0,0,0,.2);display:none;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<header><h1>🔑 TETRA KMF Console</h1><span class="sw" id="sw"></span></header>
+<main>
+  <div class="card">
+    <h2>Subscribers &amp; authentication key (K)</h2>
+    <table><thead><tr><th>ISSI</th><th>Label</th><th>K</th><th></th></tr></thead><tbody id="subs"></tbody></table>
+    <form class="row" onsubmit="return add('/api/subscriber/add',{issi:this.issi.value*1,label:this.label.value})">
+      <label>ISSI<input name="issi" type="number" required></label>
+      <label>Label<input name="label" placeholder="e.g. Dave MM7FDM"></label>
+      <button>Add subscriber</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Talkgroups &amp; group cipher key (GCK)</h2>
+    <table><thead><tr><th>GSSI</th><th>Label</th><th>Members</th><th>GCK versions</th></tr></thead><tbody id="groups"></tbody></table>
+    <form class="row" onsubmit="return add('/api/group/add',{gssi:this.gssi.value*1,label:this.label.value})">
+      <label>GSSI<input name="gssi" type="number" required></label>
+      <label>Label<input name="label"></label><button>Add group</button>
+    </form>
+    <form class="row" onsubmit="return add('/api/group/member',{gssi:this.gssi.value*1,issi:this.issi.value*1})">
+      <label>GSSI<input name="gssi" type="number" required></label>
+      <label>add ISSI<input name="issi" type="number" required></label><button class="gray">Add member</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Static cipher keys (SCK, SCKN 1–32)</h2>
+    <table><thead><tr><th>SCKN</th><th>Label</th><th>Versions</th><th></th></tr></thead><tbody id="scks"></tbody></table>
+    <form class="row" onsubmit="return add('/api/sck/gen',{sckn:this.sckn.value*1,label:this.label.value})">
+      <label>SCKN<input name="sckn" type="number" min="1" max="32" required></label>
+      <label>Label<input name="label"></label><button>Generate SCK version</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>GSKO (group key-encryption key)</h2>
+    <div id="gsko" class="muted"></div>
+    <form class="row" onsubmit="return add('/api/gsko/gen',{})"><button>Generate GSKO version</button></form>
+  </div>
+
+  <div class="card">
+    <h2>OTAR — provision a key to a radio</h2>
+    <p class="muted" id="prov-note"></p>
+    <form class="row" onsubmit="return provision('/api/provision/sck',{issi:this.issi.value*1,sckn:this.sckn.value*1,version:this.version.value*1,ksg:this.ksg.value*1})">
+      <label>ISSI<input name="issi" type="number" required></label>
+      <label>SCKN<input name="sckn" type="number" min="1" max="32" required></label>
+      <label>Version<input name="version" type="number" value="1" required></label>
+      <label>KSG<select name="ksg"><option value="1">TEA1</option><option value="2" selected>TEA2</option><option value="3">TEA3</option></select></label>
+      <button>Provision SCK</button>
+    </form>
+    <form class="row" onsubmit="return provision('/api/provision/gck',{issi:this.issi.value*1,gssi:this.gssi.value*1,version:this.version.value*1,gckn:this.gckn.value*1,ksg:this.ksg.value*1})">
+      <label>ISSI<input name="issi" type="number" required></label>
+      <label>GSSI<input name="gssi" type="number" required></label>
+      <label>Version<input name="version" type="number" value="1" required></label>
+      <label>GCKN<input name="gckn" type="number" value="1" required></label>
+      <label>KSG<select name="ksg"><option value="1">TEA1</option><option value="2" selected>TEA2</option><option value="3">TEA3</option></select></label>
+      <button>Provision GCK</button>
+    </form>
+  </div>
+</main>
+<div id="toast"></div>
+<script>
+const $ = s => document.querySelector(s);
+function toast(msg, bad){ const t=$('#toast'); t.textContent=msg; t.style.background=bad?'#dc3545':'#198754'; t.style.display='block'; setTimeout(()=>t.style.display='none', 4000); }
+function stc(st){ return `<span class="st-${st}">${st}</span>`; }
+function vers(a){ return a&&a.length ? a.map(v=>`v${v.version} ${stc(v.state)}`).join('<br>') : '<span class="muted">none</span>'; }
+async function post(path, body){ const r = await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); return r.json(); }
+async function add(path, body){ const j = await post(path, body); if(j.ok){ toast('Done'+(j.version?` (v${j.version})`:'')); load(); } else toast(j.error||'error', true); return false; }
+async function provision(path, body){ toast('Provisioning…'); const j = await post(path, body); if(j.ok) toast('SwMI: '+j.status); else toast(j.error||'error', true); return false; }
+async function load(){
+  const d = await (await fetch('/api/state')).json();
+  $('#sw').textContent = d.swmi ? ('SwMI: '+d.swmi) : 'no SwMI configured';
+  $('#prov-note').textContent = d.swmi ? ('Sealed under the radio’s K and sent to '+d.swmi+' to transmit over the air.') : 'Start the console with --swmi to enable provisioning.';
+  $('#subs').innerHTML = (d.subscribers||[]).map(s=>`<tr><td>${s.issi}</td><td>${s.label||''}</td><td>${s.k?('K v'+s.k.version+' '+stc(s.k.state)):'<span class=muted>no K</span>'}</td>
+    <td><button class="sm" onclick="add('/api/subscriber/genk',{issi:${s.issi}})">Gen/rotate K</button>
+        <button class="sm red" onclick="if(confirm('Mark K compromised?'))add('/api/subscriber/compromisek',{issi:${s.issi}})">Compromise</button></td></tr>`).join('') || '<tr><td colspan=4 class=muted>none</td></tr>';
+  $('#groups').innerHTML = (d.groups||[]).map(g=>`<tr><td>${g.gssi}</td><td>${g.label||''}</td><td>${(g.members||[]).map(m=>'<span class=pill>'+m+'</span>').join('')||'<span class=muted>none</span>'}</td>
+    <td>${vers(g.gck)}<br><button class="sm" onclick="add('/api/group/gck',{gssi:${g.gssi}})">Gen GCK</button> <button class="sm gray" onclick="actGck(${g.gssi})">Activate…</button></td></tr>`).join('') || '<tr><td colspan=4 class=muted>none</td></tr>';
+  $('#scks').innerHTML = (d.sck_slots||[]).map(s=>`<tr><td>${s.sckn}</td><td>${s.label||''}</td><td>${vers(s.versions)}</td>
+    <td><button class="sm gray" onclick="actSck(${s.sckn})">Activate…</button></td></tr>`).join('') || '<tr><td colspan=4 class=muted>none</td></tr>';
+  $('#gsko').innerHTML = vers(d.gsko);
+}
+function actSck(sckn){ const v=prompt('Activate SCKN '+sckn+' version:'); if(v) add('/api/sck/activate',{sckn, version:v*1}); }
+function actGck(gssi){ const v=prompt('Activate GCK version for GSSI '+gssi+':'); if(v) add('/api/group/gck/activate',{gssi, version:v*1}); }
+load();
+</script>
+</body>
+</html>
