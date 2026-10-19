@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use tetra_kmf::audit::AuditLog;
-use tetra_kmf::store::JsonFileStore;
+use tetra_kmf::store::{EncryptedFileStore, JsonFileStore, KeyStore};
 use tetra_kmf::types::Sckn;
 use tetra_kmf::{Kmc, Result};
 
@@ -94,11 +94,22 @@ fn run() -> Result<()> {
         .or_else(|| std::env::var("USER").ok())
         .unwrap_or_else(|| "operator".to_string());
     let audit = AuditLog::new(&cli.audit, actor);
-    let store = JsonFileStore::new(&cli.db);
+
+    // Pick the backend: encrypted when a master passphrase is set, otherwise a
+    // plaintext dev store (with a loud warning).
+    let store: Box<dyn KeyStore> = match std::env::var("TETRA_KMF_MASTER_KEY") {
+        Ok(pw) if !pw.is_empty() => Box::new(EncryptedFileStore::new(&cli.db, pw)),
+        _ => {
+            eprintln!(
+                "warning: TETRA_KMF_MASTER_KEY not set — using an UNENCRYPTED plaintext store (dev only)"
+            );
+            Box::new(JsonFileStore::new(&cli.db))
+        }
+    };
 
     // `init` creates the DB; everything else opens it.
     if matches!(cli.cmd, Cmd::Init) {
-        if store.exists() {
+        if cli.db.exists() {
             eprintln!("refusing to overwrite existing database {}", cli.db.display());
             return Ok(());
         }

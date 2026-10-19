@@ -4,13 +4,11 @@
 
 //! Persistence for the key database.
 //!
-//! Phase 1 ships a plain-JSON file backend (written `0600`). It is a developer
-//! backend only: key material is stored in the clear.
-//!
-//! # SECURITY
-//! Do NOT use `JsonFileStore` for production key material. At-rest AEAD
-//! encryption (a master-key-wrapped store via `ring`) is the next milestone and
-//! will implement the same [`KeyStore`] trait, so callers do not change.
+//! Two backends implement [`KeyStore`]:
+//! - [`EncryptedFileStore`] — AES-256-GCM at rest under a passphrase-derived
+//!   key (see [`crate::crypto`]). Use this for real key material.
+//! - [`JsonFileStore`] — plain JSON, written `0600`. Developer/testing only;
+//!   key material is in the clear.
 
 use crate::error::Result;
 use crate::model::Database;
@@ -58,6 +56,61 @@ impl KeyStore for JsonFileStore {
         restrict_perms(&tmp)?;
         std::fs::rename(&tmp, &self.path)?;
         Ok(())
+    }
+}
+
+/// Encrypted file backend: the database is sealed with AES-256-GCM under a key
+/// derived from the operator master passphrase (see [`crate::crypto`]). This is
+/// the backend to use for real key material.
+pub struct EncryptedFileStore {
+    path: PathBuf,
+    passphrase: String,
+}
+
+impl EncryptedFileStore {
+    pub fn new(path: impl AsRef<Path>, passphrase: impl Into<String>) -> Self {
+        EncryptedFileStore {
+            path: path.as_ref().to_path_buf(),
+            passphrase: passphrase.into(),
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn exists(&self) -> bool {
+        self.path.exists()
+    }
+}
+
+impl KeyStore for EncryptedFileStore {
+    fn load(&self) -> Result<Database> {
+        let framed = std::fs::read(&self.path)?;
+        let json = crate::crypto::open(&framed, &self.passphrase)?;
+        Ok(serde_json::from_slice(&json)?)
+    }
+
+    fn save(&self, db: &Database) -> Result<()> {
+        let json = serde_json::to_vec(db)?;
+        let framed = crate::crypto::seal(&json, &self.passphrase)?;
+        let tmp = self.path.with_extension("tmp");
+        std::fs::write(&tmp, &framed)?;
+        restrict_perms(&tmp)?;
+        std::fs::rename(&tmp, &self.path)?;
+        Ok(())
+    }
+}
+
+/// Lets a runtime-selected backend (`Box<dyn KeyStore>`) satisfy the generic
+/// `Kmc<S: KeyStore>`.
+impl KeyStore for Box<dyn KeyStore> {
+    fn load(&self) -> Result<Database> {
+        (**self).load()
+    }
+
+    fn save(&self, db: &Database) -> Result<()> {
+        (**self).save(db)
     }
 }
 
