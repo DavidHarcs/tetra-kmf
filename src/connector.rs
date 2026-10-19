@@ -102,6 +102,25 @@ impl SwmiConnector for HttpSwmiConnector {
     }
 }
 
+impl HttpSwmiConnector {
+    /// GET the last D-OTAR result for `issi` from the SwMI.
+    pub fn result_for(&self, issi: Issi) -> Result<String> {
+        let url = format!("{}/api/otar/result?issi={}", self.base_url, issi);
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .map_err(|e| KmfError::Io(format!("GET {url}: {e}")))?;
+        let v: serde_json::Value = resp
+            .json()
+            .map_err(|e| KmfError::Io(format!("bad response from {url}: {e}")))?;
+        Ok(v.get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown")
+            .to_string())
+    }
+}
+
 /// Interpret the SwMI's `{ok, status|error}` JSON reply.
 fn parse_swmi_reply(
     url: &str,

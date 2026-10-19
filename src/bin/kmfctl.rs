@@ -79,6 +79,9 @@ enum OtarCmd {
         /// Accept the SwMI's self-signed TLS certificate.
         #[arg(long, default_value_t = false)]
         insecure: bool,
+        /// Poll the SwMI for the radio's D-OTAR result (up to 35 s).
+        #[arg(long, default_value_t = false)]
+        wait: bool,
     },
     /// Seal a group's GCK and send it to a FlowStation SwMI to transmit.
     ProvideGck {
@@ -97,7 +100,34 @@ enum OtarCmd {
         /// Accept the SwMI's self-signed TLS certificate.
         #[arg(long, default_value_t = false)]
         insecure: bool,
+        /// Poll the SwMI for the radio's D-OTAR result (up to 35 s).
+        #[arg(long, default_value_t = false)]
+        wait: bool,
     },
+}
+
+/// Poll the SwMI for the radio's D-OTAR result after a provision.
+fn wait_for_result(connector: &HttpSwmiConnector, issi: u32) {
+    use std::time::{Duration, Instant};
+    let deadline = Instant::now() + Duration::from_secs(35);
+    loop {
+        std::thread::sleep(Duration::from_secs(2));
+        match connector.result_for(issi) {
+            Ok(st) if st != "pending" && st != "sent" => {
+                println!("  radio result: {st}");
+                return;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("  (result poll error: {e})");
+                return;
+            }
+        }
+        if Instant::now() >= deadline {
+            println!("  radio result: timeout (no response within 35 s)");
+            return;
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -183,16 +213,22 @@ fn run() -> Result<()> {
                 println!("  RSO  = {}", hex::encode(&sealed.rso));
                 eprintln!("(the SwMI transmits SSCK+RSO in a D-OTAR SCK PROVIDE PDU)");
             }
-            OtarCmd::ProvideSck { issi, sckn, version, ksg, swmi, insecure } => {
+            OtarCmd::ProvideSck { issi, sckn, version, ksg, swmi, insecure, wait } => {
                 let n = Sckn::new(sckn)?;
                 let connector = HttpSwmiConnector::new(&swmi, insecure)?;
                 let status = kmc.provision_sck(&TetraSealer, &connector, issi, n, version, ksg)?;
                 println!("provisioned SCK {sckn} v{version} to ISSI {issi} via {swmi}: {status}");
+                if wait {
+                    wait_for_result(&connector, issi);
+                }
             }
-            OtarCmd::ProvideGck { issi, gssi, version, gckn, ksg, swmi, insecure } => {
+            OtarCmd::ProvideGck { issi, gssi, version, gckn, ksg, swmi, insecure, wait } => {
                 let connector = HttpSwmiConnector::new(&swmi, insecure)?;
                 let status = kmc.provision_gck(&TetraSealer, &connector, issi, gssi, version, gckn, ksg)?;
                 println!("provisioned GCK {gckn} v{version} (GSSI {gssi}) to ISSI {issi} via {swmi}: {status}");
+                if wait {
+                    wait_for_result(&connector, issi);
+                }
             }
         },
         Cmd::Subscriber { cmd } => match cmd {
