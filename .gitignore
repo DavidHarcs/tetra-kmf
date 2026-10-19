@@ -1,0 +1,5 @@
+/target
+# Local key databases and audit logs — never commit key material.
+kmf-db.json
+*.tmp
+kmf-audit.jsonl

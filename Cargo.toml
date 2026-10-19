@@ -1,0 +1,32 @@
+[package]
+name = "tetra-kmf"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96"
+description = "Open-source TETRA Key Management Facility: generates, stores and manages SCK/GCK/GSKO/CCK/K key material and drives OTAR provisioning for a TETRA SwMI."
+authors = ["David Harcus MM7FDM <david@donhostmedia.uk>"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/DavidHarcs/tetra-kmf"
+keywords = ["tetra", "otar", "key-management", "kmf", "radio"]
+categories = ["cryptography", "command-line-utilities"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
+zeroize = { version = "1.8", features = ["derive"] }
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+clap = { version = "4", features = ["derive"] }
+
+[lib]
+name = "tetra_kmf"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kmfctl"
+path = "src/bin/kmfctl.rs"
+
+[profile.release]
+opt-level = 2
