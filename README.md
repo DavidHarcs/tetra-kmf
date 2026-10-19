@@ -79,6 +79,9 @@ kmfctl otar seal-sck 2358245 1 1
 # seal AND send it to a FlowStation SwMI to transmit over the air
 kmfctl otar provide-sck 2358245 1 1 --ksg 2 --swmi https://flowstation.local --insecure
 
+# provision a group's GCK to a radio (D-OTAR GCK PROVIDE)
+kmfctl otar provide-gck 2358245 314946 1 --gckn 100 --ksg 2 --swmi https://flowstation.local --insecure
+
 kmfctl status
 ```
 
@@ -94,13 +97,12 @@ kmfctl subscriber export-k 2358245
   audit log, CLI.
 - **Phase 2a (done):** at-rest **AES-256-GCM** encryption of the store
   (passphrase-derived key).
-- **Phase 2b (done):** OTAR **SCK sealing** (TA41 → KSO, TA51 for SCK) via the
-  `tetra-security` crate. GCK sealing (TA81) lands when `tetra-security` exposes
-  it.
+- **Phase 2b (done):** OTAR **SCK and GCK sealing** (TA41 → KSO, TA51 for SCK;
+  TA81 for GCK, individual mode) via the `tetra-security` crate.
 - **Phase 2c (done):** a **SwMI connector** (`HttpSwmiConnector`) that POSTs a
-  sealed SCK to FlowStation's `POST /api/otar/sck`, which transmits the D-OTAR
-  SCK PROVIDE PDU. K never leaves the KMF (Model B). Reporting the radio's
-  result back up to the KMF is the remaining loop-closer.
+  sealed SCK or GCK to FlowStation's `POST /api/otar/sck` / `/api/otar/gck`,
+  which transmits the D-OTAR PROVIDE PDU. K never leaves the KMF (Model B).
+  Reporting the radio's result back up to the KMF is the remaining loop-closer.
 - **Phase 3:** web operator console; crypto-period automation; multi-site
   (links into a TETRA network core).
 

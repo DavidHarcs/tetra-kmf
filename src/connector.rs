@@ -65,16 +65,58 @@ impl SwmiConnector for HttpSwmiConnector {
         let v: serde_json::Value = resp
             .json()
             .map_err(|e| KmfError::Io(format!("bad response from {url}: {e}")))?;
-        if v.get("ok").and_then(|b| b.as_bool()) == Some(true) {
-            Ok(v.get("status")
-                .and_then(|s| s.as_str())
-                .unwrap_or("accepted")
-                .to_string())
-        } else {
-            let err = v.get("error").and_then(|s| s.as_str()).unwrap_or("rejected");
-            Err(KmfError::Policy(format!(
-                "SwMI rejected provision (HTTP {http_status}): {err}"
-            )))
-        }
+        parse_swmi_reply(&url, http_status, &v)
+    }
+
+    fn provide_gck(
+        &self,
+        issi: Issi,
+        gckn: u16,
+        gck_vn: u16,
+        ksg_air: u8,
+        gssi: u32,
+        sgck: &[u8],
+        rso: &[u8],
+    ) -> Result<String> {
+        let url = format!("{}/api/otar/gck", self.base_url);
+        let body = serde_json::json!({
+            "issi": issi,
+            "gckn": gckn,
+            "gck_vn": gck_vn,
+            "ksg_air": ksg_air,
+            "gssi": gssi,
+            "sgck": hex::encode(sgck),
+            "rso": hex::encode(rso),
+        });
+        let resp = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .map_err(|e| KmfError::Io(format!("POST {url}: {e}")))?;
+        let http_status = resp.status();
+        let v: serde_json::Value = resp
+            .json()
+            .map_err(|e| KmfError::Io(format!("bad response from {url}: {e}")))?;
+        parse_swmi_reply(&url, http_status, &v)
+    }
+}
+
+/// Interpret the SwMI's `{ok, status|error}` JSON reply.
+fn parse_swmi_reply(
+    url: &str,
+    http_status: reqwest::StatusCode,
+    v: &serde_json::Value,
+) -> Result<String> {
+    if v.get("ok").and_then(|b| b.as_bool()) == Some(true) {
+        Ok(v.get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("accepted")
+            .to_string())
+    } else {
+        let err = v.get("error").and_then(|s| s.as_str()).unwrap_or("rejected");
+        Err(KmfError::Policy(format!(
+            "SwMI rejected provision at {url} (HTTP {http_status}): {err}"
+        )))
     }
 }

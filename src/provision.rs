@@ -65,10 +65,21 @@ pub struct SealedKey {
     pub rso: Vec<u8>,
 }
 
-/// Seals stored key material for OTAR. Implemented in Phase 2 via `tetra-security`.
+/// Seals stored key material for OTAR. Implemented via `tetra-security`.
 pub trait Sealer {
-    /// Seal `key` for `job.target`, using that subscriber's authentication key `k`.
+    /// Seal `key` (an SCK) for `job.target`, using that subscriber's K.
     fn seal(&self, job: &ProvisionJob, k: &KeyMaterial, key: &KeyMaterial) -> Result<SealedKey>;
+
+    /// Seal a GCK (number `gckn`, version `gck_vn`) for one radio in individual
+    /// mode — KSO = TA41(K, RSO) then TA81 — under that subscriber's K.
+    /// Returns `(sealed GCK, RSO)`.
+    fn seal_gck(
+        &self,
+        k: &KeyMaterial,
+        gck: &KeyMaterial,
+        gck_vn: u16,
+        gckn: u16,
+    ) -> Result<(Vec<u8>, Vec<u8>)>;
 }
 
 /// Delivers a sealed SCK to the SwMI, which transmits the D-OTAR SCK PROVIDE PDU
@@ -82,6 +93,19 @@ pub trait SwmiConnector {
         sck_vn: u16,
         ksg_air: u8,
         ssck: &[u8],
+        rso: &[u8],
+    ) -> Result<String>;
+
+    /// Deliver a sealed GCK (D-OTAR GCK PROVIDE), associated to group `gssi`.
+    #[allow(clippy::too_many_arguments)]
+    fn provide_gck(
+        &self,
+        issi: Issi,
+        gckn: u16,
+        gck_vn: u16,
+        ksg_air: u8,
+        gssi: u32,
+        sgck: &[u8],
         rso: &[u8],
     ) -> Result<String>;
 }

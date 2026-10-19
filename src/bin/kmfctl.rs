@@ -80,6 +80,24 @@ enum OtarCmd {
         #[arg(long, default_value_t = false)]
         insecure: bool,
     },
+    /// Seal a group's GCK and send it to a FlowStation SwMI to transmit.
+    ProvideGck {
+        issi: u32,
+        gssi: u32,
+        version: u16,
+        /// 16-bit GCK number (GCKN).
+        #[arg(long)]
+        gckn: u16,
+        /// 1-based TEA number (1=TEA1, 2=TEA2, 3=TEA3).
+        #[arg(long, default_value_t = 2)]
+        ksg: u8,
+        /// SwMI base URL, e.g. https://flowstation.local
+        #[arg(long)]
+        swmi: String,
+        /// Accept the SwMI's self-signed TLS certificate.
+        #[arg(long, default_value_t = false)]
+        insecure: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -170,6 +188,11 @@ fn run() -> Result<()> {
                 let connector = HttpSwmiConnector::new(&swmi, insecure)?;
                 let status = kmc.provision_sck(&TetraSealer, &connector, issi, n, version, ksg)?;
                 println!("provisioned SCK {sckn} v{version} to ISSI {issi} via {swmi}: {status}");
+            }
+            OtarCmd::ProvideGck { issi, gssi, version, gckn, ksg, swmi, insecure } => {
+                let connector = HttpSwmiConnector::new(&swmi, insecure)?;
+                let status = kmc.provision_gck(&TetraSealer, &connector, issi, gssi, version, gckn, ksg)?;
+                println!("provisioned GCK {gckn} v{version} (GSSI {gssi}) to ISSI {issi} via {swmi}: {status}");
             }
         },
         Cmd::Subscriber { cmd } => match cmd {

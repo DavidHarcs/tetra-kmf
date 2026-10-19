@@ -291,6 +291,52 @@ impl<S: KeyStore> Kmc<S> {
         Ok(status)
     }
 
+    /// Seal a group's GCK (number `gckn`, version `version`) for `issi` and send
+    /// it to the SwMI to transmit as a D-OTAR GCK PROVIDE associated to `gssi`.
+    /// Sealed in individual mode under the subscriber's K. `ksg` is 1-based.
+    #[allow(clippy::too_many_arguments)]
+    pub fn provision_gck<SE: Sealer, SW: SwmiConnector>(
+        &self,
+        sealer: &SE,
+        connector: &SW,
+        issi: Issi,
+        gssi: Gssi,
+        version: u16,
+        gckn: u16,
+        ksg: u8,
+    ) -> Result<String> {
+        let sub = self
+            .db
+            .subscribers
+            .get(&issi)
+            .ok_or_else(|| KmfError::NotFound(format!("subscriber {issi}")))?;
+        let k = sub
+            .k
+            .as_ref()
+            .ok_or_else(|| KmfError::NotFound(format!("K for subscriber {issi}")))?;
+        if k.state == KeyState::Compromised {
+            return Err(KmfError::Policy(format!("K for subscriber {issi} is compromised")));
+        }
+        let group = self
+            .db
+            .groups
+            .get(&gssi)
+            .ok_or_else(|| KmfError::NotFound(format!("group {gssi}")))?;
+        let gckv = group
+            .gck
+            .iter()
+            .find(|v| v.version == version)
+            .ok_or_else(|| KmfError::NotFound(format!("GCK v{version} for group {gssi}")))?;
+        let (sgck, rso) = sealer.seal_gck(&k.material, &gckv.material, version, gckn)?;
+        let status =
+            connector.provide_gck(issi, gckn, version, ksg.saturating_sub(1), gssi, &sgck, &rso)?;
+        self.audit.record(
+            "otar.gck.provision",
+            format!("issi={issi} gssi={gssi} gckn={gckn} version={version} ksg={ksg} status={status}"),
+        )?;
+        Ok(status)
+    }
+
     // --- lifecycle (compromise) -------------------------------------------
 
     /// Flag a subscriber's K compromised (terminal). Does not delete it, so the

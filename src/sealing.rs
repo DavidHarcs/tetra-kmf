@@ -19,7 +19,7 @@ use crate::provision::{KeyRef, ProvisionJob, SealedKey, Sealer};
 use crate::types::KeyMaterial;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use tetra_security::taa1::otar::ta51;
+use tetra_security::taa1::otar::{ta51, ta81};
 use tetra_security::taa1::ta41;
 
 /// Seals keys for OTAR using TETRA's TAA1 algorithms.
@@ -56,12 +56,28 @@ impl Sealer for TetraSealer {
                 })
             }
             KeyRef::Gck { .. } => Err(KmfError::Policy(
-                "GCK sealing (TA81) is not yet available in tetra-security".into(),
+                "use seal_gck for GCKs (they carry a GCKN)".into(),
             )),
             KeyRef::Gsko { .. } => Err(KmfError::Policy(
                 "GSKO sealing is not yet implemented".into(),
             )),
         }
+    }
+
+    fn seal_gck(
+        &self,
+        k: &KeyMaterial,
+        gck: &KeyMaterial,
+        gck_vn: u16,
+        gckn: u16,
+    ) -> Result<(Vec<u8>, Vec<u8>)> {
+        let k16: [u8; 16] = as_array(k, "K")?;
+        let gck10: [u8; 10] = as_array(gck, "GCK")?;
+        let mut rso = [0u8; 10];
+        OsRng.fill_bytes(&mut rso);
+        let kso = ta41(&k16, &rso);
+        let sgck = ta81(&gck10, gck_vn, &gckn.to_be_bytes(), &kso);
+        Ok((sgck.to_vec(), rso.to_vec()))
     }
 }
 
