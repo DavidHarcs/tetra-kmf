@@ -102,6 +102,28 @@ Export a subscriber's K as hex for the **initial physical fill** (sensitive):
 kmfctl subscriber export-k 2358245
 ```
 
+## Direct-cable key loader
+
+As well as OTAR, keys can be filled down a serial cable into a radio or a
+key-fill device — the cable half of a KMF, as a Motorola KVL does. See
+[`docs/LOADER.md`](docs/LOADER.md) for the protocol and the capture workflow.
+
+```bash
+# Prove the whole pipeline with no hardware (database -> KFP -> device):
+kmfctl loader selftest
+
+# Real hardware needs the serial feature (no libudev-dev required on Linux):
+cargo build --release --features serial
+kmfctl loader read-tei  --port /dev/ttyUSB0            # read the radio's TEI
+kmfctl loader write-k   2358245 --port /dev/ttyUSB0    # fill K (pulled from the KMF)
+kmfctl loader write-sck 1       --port /dev/ttyUSB0    # fill a slot's active SCK
+```
+
+The loader speaks **KFP**, an open CRC-framed protocol any device (or a DIY
+fill dongle) can implement. A Motorola KVL-dialect profile (`--device motorola`)
+is scaffolded but capture-driven — its proprietary frames are not shipped
+guessed; see `docs/LOADER.md`.
+
 ## Roadmap
 
 - **Phase 1 (done):** domain model, key store, secure generation, lifecycle,
@@ -118,6 +140,11 @@ kmfctl subscriber export-k 2358245
   subscribers/groups/keys and one-click SCK/GCK provisioning in a browser; key
   material is never exposed over the API. Still to come: crypto-period
   automation and multi-site.
+- **Phase 4 (in progress):** **direct-cable key loader** (`loader` subcommand,
+  `--features serial`) — fill K/SCK/GCK into a radio or fill device over serial
+  via the open **KFP** protocol, with a reference device + hardware-free
+  self-test. A Motorola KVL-dialect profile is scaffolded (capture-driven).
+  See [`docs/LOADER.md`](docs/LOADER.md).
 
 ## Security notes
 

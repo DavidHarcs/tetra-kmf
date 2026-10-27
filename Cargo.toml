@@ -22,6 +22,14 @@ uuid = { version = "1", features = ["v4", "serde"] }
 clap = { version = "4", features = ["derive"] }
 tetra-security = { path = "../tetra-security" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
+# Serial key-fill (direct cable loader). default-features off so no libudev-dev is
+# needed on Linux (open-by-path, no port enumeration). Behind the `serial` feature.
+serialport = { version = "4.5.1", default-features = false, optional = true }
+
+[features]
+default = []
+# Enable the direct-cable key loader (`kmfctl loader ...`) over a serial port.
+serial = ["dep:serialport"]
 
 [lib]
 name = "tetra_kmf"

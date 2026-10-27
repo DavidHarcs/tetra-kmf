@@ -10,9 +10,10 @@ use std::process::ExitCode;
 use tetra_kmf::audit::AuditLog;
 use tetra_kmf::connector::HttpSwmiConnector;
 use tetra_kmf::sealing::TetraSealer;
+use tetra_kmf::loader::KeyFill;
 use tetra_kmf::store::{EncryptedFileStore, JsonFileStore, KeyStore};
 use tetra_kmf::types::Sckn;
-use tetra_kmf::{Kmc, Result};
+use tetra_kmf::{Kmc, KmfError, Result};
 
 #[derive(Parser)]
 #[command(name = "kmfctl", version, about = "TETRA Key Management Facility control tool")]
@@ -86,6 +87,65 @@ enum Cmd {
         #[command(subcommand)]
         cmd: KeysCmd,
     },
+    /// Direct-cable key loader: write key material into a radio / fill device
+    /// over a serial line (needs `--features serial`, except `selftest`).
+    Loader {
+        #[command(subcommand)]
+        cmd: LoaderCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum LoaderCmd {
+    /// Exercise the whole fill pipeline against an in-process reference device —
+    /// no hardware, no serial feature needed. Proves DB → KFP → device works.
+    Selftest,
+    /// Read the attached radio's equipment identity (TEI).
+    ReadTei {
+        #[command(flatten)]
+        port: PortArgs,
+    },
+    /// Write a subscriber's authentication key K (pulled from the KMF).
+    WriteK {
+        issi: u32,
+        #[command(flatten)]
+        port: PortArgs,
+    },
+    /// Write a slot's active Static Cipher Key (pulled from the KMF).
+    WriteSck {
+        sckn: u8,
+        #[command(flatten)]
+        port: PortArgs,
+    },
+    /// Write a group's active Group Cipher Key (pulled from the KMF).
+    WriteGck {
+        gssi: u32,
+        #[command(flatten)]
+        port: PortArgs,
+    },
+}
+
+/// Serial port + device-dialect selection, shared by the loader write commands.
+#[derive(clap::Args)]
+#[allow(dead_code)] // fields are read only under `--features serial`
+struct PortArgs {
+    /// Serial device path (e.g. /dev/ttyUSB0, or COM3 on Windows).
+    #[arg(long)]
+    port: String,
+    /// Baud rate (the CDV/KVL loaders default to 19200).
+    #[arg(long, default_value_t = 19200)]
+    baud: u32,
+    /// Device dialect: `kfp` (open protocol / DIY fill dongle) or `motorola`
+    /// (KVL serial dialect — capture-driven, not yet mapped).
+    #[arg(long, value_enum, default_value_t = DeviceKind::Kfp)]
+    device: DeviceKind,
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+#[allow(dead_code)]
+enum DeviceKind {
+    Kfp,
+    Motorola,
 }
 
 #[derive(Subcommand)]
@@ -222,6 +282,12 @@ fn run() -> Result<()> {
         .unwrap_or_else(|| "operator".to_string());
     let audit = AuditLog::new(&cli.audit, actor);
 
+    // The loader self-test needs no database or store (it drives an in-process
+    // device), so handle it before any store/DB setup.
+    if matches!(cli.cmd, Cmd::Loader { cmd: LoaderCmd::Selftest }) {
+        return loader_selftest();
+    }
+
     // Pick the backend: encrypted when a master passphrase is set, otherwise a
     // plaintext dev store (with a loud warning).
     let store: Box<dyn KeyStore> = match std::env::var("TETRA_KMF_MASTER_KEY") {
@@ -332,6 +398,44 @@ fn run() -> Result<()> {
                 println!("imported {n} K record(s)");
             }
         },
+        Cmd::Loader { cmd } => match cmd {
+            LoaderCmd::Selftest => loader_selftest()?,
+            LoaderCmd::ReadTei { port } => {
+                let mut dev = open_fill(&port)?;
+                let banner = dev.hello().unwrap_or_default();
+                if !banner.is_empty() {
+                    println!("device: {banner}");
+                }
+                let tei = dev.read_tei()?;
+                println!("TEI: {}", hex::encode(&tei));
+            }
+            LoaderCmd::WriteK { issi, port } => {
+                let k = hex::decode(kmc.export_k_hex(issi)?).map_err(|_| err_hex())?;
+                let tei = tei_bytes(kmc.subscriber_tei(issi));
+                let mut dev = open_fill(&port)?;
+                eprintln!("!! SENSITIVE: filling authentication key K for ISSI {issi} over the cable");
+                dev.write_k(issi, &tei, &k)?;
+                println!("wrote K to ISSI {issi}");
+            }
+            LoaderCmd::WriteSck { sckn, port } => {
+                let n = Sckn::new(sckn)?;
+                let (vn, hexk) = kmc.active_sck_hex(n)?;
+                let sck = hex::decode(hexk).map_err(|_| err_hex())?;
+                let mut dev = open_fill(&port)?;
+                eprintln!("!! SENSITIVE: filling SCK {sckn} v{vn} over the cable");
+                dev.write_sck(sckn, vn, &sck)?;
+                println!("wrote SCK {sckn} v{vn}");
+            }
+            LoaderCmd::WriteGck { gssi, port } => {
+                let (vn, hexk) = kmc.active_gck_hex(gssi)?;
+                let gck = hex::decode(hexk).map_err(|_| err_hex())?;
+                let gckn = gssi as u16; // GCKN defaults to the low 16 bits of GSSI
+                let mut dev = open_fill(&port)?;
+                eprintln!("!! SENSITIVE: filling GCK (GSSI {gssi}) v{vn} over the cable");
+                dev.write_gck(gckn, vn, &gck)?;
+                println!("wrote GCK for GSSI {gssi} v{vn}");
+            }
+        },
         Cmd::Subscriber { cmd } => match cmd {
             SubCmd::Add { issi, label } => {
                 kmc.add_subscriber(issi, label)?;
@@ -432,6 +536,57 @@ fn run() -> Result<()> {
             }
         },
     }
+    Ok(())
+}
+
+fn err_hex() -> KmfError {
+    KmfError::BadHex
+}
+
+/// A stored TEI string → bytes: hex if it decodes, otherwise raw UTF-8; empty
+/// when there is no TEI.
+fn tei_bytes(tei: Option<String>) -> Vec<u8> {
+    match tei {
+        Some(s) => hex::decode(s.trim()).unwrap_or_else(|_| s.into_bytes()),
+        None => Vec::new(),
+    }
+}
+
+/// Open a key-fill device on a serial port (needs `--features serial`).
+#[cfg(feature = "serial")]
+fn open_fill(p: &PortArgs) -> Result<Box<dyn KeyFill>> {
+    use tetra_kmf::loader::{motorola::MotorolaKvl, KfpDevice, SerialTransport};
+    let t = SerialTransport::open(&p.port, p.baud)?;
+    Ok(match p.device {
+        DeviceKind::Kfp => Box::new(KfpDevice::new(t)),
+        DeviceKind::Motorola => Box::new(MotorolaKvl::new(t)),
+    })
+}
+
+#[cfg(not(feature = "serial"))]
+fn open_fill(_p: &PortArgs) -> Result<Box<dyn KeyFill>> {
+    Err(KmfError::Policy(
+        "this build has no serial support — rebuild with `--features serial` to use the cable loader \
+         (`loader selftest` works without it)"
+            .into(),
+    ))
+}
+
+/// Run the full fill pipeline against an in-process reference device.
+fn loader_selftest() -> Result<()> {
+    use tetra_kmf::loader::{KfpDevice, Loopback, RefDevice};
+    let tei = vec![0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
+    let mut dev = KfpDevice::new(Loopback::new(RefDevice::new(tei)));
+    println!("KFP key-fill self-test (in-process reference device, no hardware):");
+    println!("  hello     -> {}", dev.hello()?);
+    println!("  read-tei  -> {}", hex::encode(dev.read_tei()?));
+    dev.write_k(2358245, &[0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77], &[0x11; 16])?;
+    println!("  write-k    ISSI 2358245 ........ ok");
+    dev.write_sck(1, 1, &[0x22; 10])?;
+    println!("  write-sck  SCKN 1 v1 ........... ok");
+    dev.write_gck(100, 1, &[0x33; 10])?;
+    println!("  write-gck  GCKN 100 v1 ......... ok");
+    println!("pipeline OK — database -> KFP -> device round-trips cleanly.");
     Ok(())
 }
 

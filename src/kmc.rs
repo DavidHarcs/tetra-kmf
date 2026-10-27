@@ -143,6 +143,43 @@ impl<S: KeyStore> Kmc<S> {
         Ok(k.material.to_hex())
     }
 
+    /// A subscriber's TEI (equipment identity), if set.
+    pub fn subscriber_tei(&self, issi: Issi) -> Option<String> {
+        self.db.subscribers.get(&issi).and_then(|s| s.tei.clone())
+    }
+
+    /// The active SCK in a slot as `(version, hex)`, for a cable fill. Sensitive.
+    /// Errs if the slot has no Active version.
+    pub fn active_sck_hex(&self, sckn: Sckn) -> Result<(u16, String)> {
+        let slot = self
+            .db
+            .sck_slots
+            .get(&sckn.get())
+            .ok_or_else(|| KmfError::NotFound(format!("sck slot {sckn}")))?;
+        let v = slot
+            .versions
+            .iter()
+            .find(|v| v.state == KeyState::Active)
+            .ok_or_else(|| KmfError::Policy(format!("SCK slot {sckn} has no active version")))?;
+        Ok((v.version, v.material.to_hex()))
+    }
+
+    /// The active GCK for a group as `(version, hex)`, for a cable fill. Sensitive.
+    /// Errs if the group has no Active GCK version.
+    pub fn active_gck_hex(&self, gssi: Gssi) -> Result<(u16, String)> {
+        let group = self
+            .db
+            .groups
+            .get(&gssi)
+            .ok_or_else(|| KmfError::NotFound(format!("group {gssi}")))?;
+        let v = group
+            .gck
+            .iter()
+            .find(|v| v.state == KeyState::Active)
+            .ok_or_else(|| KmfError::Policy(format!("group {gssi} has no active GCK")))?;
+        Ok((v.version, v.material.to_hex()))
+    }
+
     // --- groups ------------------------------------------------------------
 
     pub fn add_group(&mut self, gssi: Gssi, label: impl Into<String>) -> Result<()> {

@@ -27,6 +27,7 @@ pub mod error;
 pub mod gen;
 pub mod keys;
 pub mod kmc;
+pub mod loader;
 pub mod model;
 pub mod provision;
 pub mod rec01;
